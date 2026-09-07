@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
-    "build": "ng build",
+    "start": "set NODE_OPTIONS=--openssl-legacy-provider&& ng serve",
+    "build": "set NODE_OPTIONS=--openssl-legacy-provider&& ng build",
     "watch": "ng build --watch --configuration development",
     "test": "ng test"
   },
@@ -19,7 +19,7 @@
     "@angular/platform-browser-dynamic": "~12.2.0",
     "@angular/router": "~12.2.0",
     "@azure/msal-angular": "^2.0.0",
-    "@azure/msal-browser": "^2.0.0",
+    "@azure/msal-browser": "^2.14.2",
     "rxjs": "~6.6.0",
     "tslib": "^2.3.0",
     "zone.js": "~0.11.4"

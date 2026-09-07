@@ -16,9 +16,6 @@ export class AppComponent implements OnInit {
 
   ngOnInit(): void {
     this.authService.instance.handleRedirectPromise().then((res: AuthenticationResult | null) => {
-      if (res && res.account) {
-        this.authService.instance.setActiveAccount(res.account);
-      }
       this.checkLoginStatus();
     });
   }
@@ -28,8 +25,7 @@ export class AppComponent implements OnInit {
     this.isLoggedIn = accounts.length > 0;
     if (this.isLoggedIn) {
       const account = accounts[0];
-      const claims = account.idTokenClaims as { name?: string };
-      this.userName = claims?.name || account.username || 'Usuario';
+      this.userName = account.username || 'Usuario';
     }
   }
 
