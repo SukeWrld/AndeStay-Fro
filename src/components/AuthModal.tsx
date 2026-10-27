@@ -33,7 +33,7 @@ export function AuthModal({ mode, isClosing, onClose, onSwitchMode, onLogin }: A
           <>
             <span className="modal-eyebrow">Bienvenido de vuelta</span>
             <h2 id="auth-modal-title">Iniciar Sesión</h2>
-            <p className="modal-description">Ingresa a tu cuenta para continuar con tu reserva.</p>
+            <p className="modal-description">Continúa con tu cuenta de Microsoft para acceder y reservar.</p>
             <form
               className="auth-form"
               onSubmit={(event) => {
@@ -41,16 +41,7 @@ export function AuthModal({ mode, isClosing, onClose, onSwitchMode, onLogin }: A
                 onLogin();
               }}
             >
-              <label>
-                Nombre de usuario
-                <input type="text" placeholder="Tu nombre de usuario" required />
-              </label>
-              <label>
-                Contraseña
-                <input type="password" placeholder="Tu contraseña" required />
-              </label>
-              <button type="button" className="forgot-password">¿Olvidaste tu contraseña?</button>
-              <button type="submit" className="modal-submit">Ingresar a AndeStay</button>
+              <button type="submit" className="modal-submit">Iniciar sesión con Microsoft</button>
             </form>
             <p className="modal-switch">
               ¿Aún no tienes una cuenta?{' '}
