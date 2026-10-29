@@ -12,5 +12,5 @@ export const msalConfig: Configuration = {
 };
 
 export const loginRequest: PopupRequest = {
-  scopes: ['User.Read'],
+  scopes: import.meta.env.VITE_API_SCOPE ? [import.meta.env.VITE_API_SCOPE] : [],
 };

@@ -512,6 +512,17 @@ body.dark-theme .reservas-section {
   font-size: 1rem;
 }
 
+.reservation-input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--card-color);
+  color: var(--text-color);
+  padding: 8px;
+  font: inherit;
+}
+
 .reserva-footer {
   display: flex;
   justify-content: space-between;

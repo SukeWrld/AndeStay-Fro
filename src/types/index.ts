@@ -23,7 +23,7 @@ export interface CrearReservaRequest {
 }
 
 export interface ReservaResponse extends CrearReservaRequest {
-  id: number;
+  id: string;
   telefonoHuesped?: string;
   estado: string;
   fechaCreacion: string;

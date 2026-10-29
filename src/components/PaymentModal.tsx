@@ -9,7 +9,11 @@ interface PaymentModalProps {
 
 export function PaymentModal({ reservation, alojamiento, onClose }: PaymentModalProps) {
   const [isPaid, setIsPaid] = useState(false);
-  const total = alojamiento.precio * 3;
+  const nights = Math.max(
+    1,
+    Math.ceil((Date.parse(reservation.fechaSalida) - Date.parse(reservation.fechaEntrada)) / 86_400_000)
+  );
+  const total = alojamiento.precio * nights;
 
   const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -48,7 +52,7 @@ export function PaymentModal({ reservation, alojamiento, onClose }: PaymentModal
             <div className="payment-summary">
               <div>
                 <strong>{alojamiento.titulo}</strong>
-                <span>Reserva #{reservation.id} · 15 nov - 18 nov</span>
+                <span>Reserva #{reservation.id} · {reservation.fechaEntrada} - {reservation.fechaSalida}</span>
               </div>
               <strong>${total.toLocaleString('es-CL')}</strong>
             </div>

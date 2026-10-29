@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useMsal, useIsAuthenticated } from '@azure/msal-react';
 import { cancelarReserva, crearReserva, obtenerReservas } from './api';
 import { loginRequest } from './authConfig';
@@ -10,9 +10,28 @@ import { PaymentModal } from './components/PaymentModal';
 import { ReservationsModal } from './components/ReservationsModal';
 import type { Alojamiento, ReservaResponse } from './types';
 
+const API_SCOPE = import.meta.env.VITE_API_SCOPE as string | undefined;
+const DEFAULT_GUEST_EMAIL = import.meta.env.VITE_RESERVATION_EMAIL?.trim();
+
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function defaultStay(): { checkIn: string; checkOut: string } {
+  const checkIn = new Date();
+  checkIn.setDate(checkIn.getDate() + 1);
+  const checkOut = new Date(checkIn);
+  checkOut.setDate(checkOut.getDate() + 3);
+  return { checkIn: formatLocalDate(checkIn), checkOut: formatLocalDate(checkOut) };
+}
+
 export function App() {
   const { instance, accounts } = useMsal();
   const isAuthenticated = useIsAuthenticated();
+  const activeAccount = accounts[0];
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [selectedId, setSelectedId] = useState<number>(1);
   const [favoriteIds, setFavoriteIds] = useState<number[]>([1, 2]);
@@ -22,12 +41,14 @@ export function App() {
   const [isLoadingReservations, setIsLoadingReservations] = useState(true);
   const [isCreatingReservation, setIsCreatingReservation] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [stayDates, setStayDates] = useState(defaultStay);
+  const [guestCount, setGuestCount] = useState(2);
   const [paymentReservation, setPaymentReservation] = useState<{
     reservation: ReservaResponse;
     alojamiento: Alojamiento;
   } | null>(null);
   const [isReservationsModalOpen, setIsReservationsModalOpen] = useState(false);
-  const [isCancellingReservation, setIsCancellingReservation] = useState<number | null>(null);
+  const [isCancellingReservation, setIsCancellingReservation] = useState<string | null>(null);
 
   const alojamientos: Alojamiento[] = [
     {
@@ -61,16 +82,35 @@ export function App() {
   ];
 
   const handleLogin = () => {
-    instance.loginPopup(loginRequest).catch((e) => {
-      console.warn('MSAL pendiente de credenciales reales:', e);
-    });
+    instance.loginPopup(loginRequest)
+      .then((result) => {
+        if (result.account) {
+          instance.setActiveAccount(result.account);
+        }
+        setApiError(null);
+      })
+      .catch((error: unknown) => {
+        setApiError(error instanceof Error ? error.message : 'No se pudo iniciar sesión con Microsoft.');
+      });
   };
 
   const handleLogout = () => {
-    instance.logoutPopup().catch((e) => {
-      console.warn('Error en logout:', e);
+    instance.logoutPopup().catch((error: unknown) => {
+      setApiError(error instanceof Error ? error.message : 'No se pudo cerrar la sesión.');
     });
   };
+
+  const getApiAccessToken = useCallback(async (): Promise<string | undefined> => {
+    if (!API_SCOPE || !activeAccount) {
+      return undefined;
+    }
+
+    const result = await instance.acquireTokenSilent({
+      scopes: [API_SCOPE],
+      account: activeAccount
+    });
+    return result.accessToken;
+  }, [activeAccount, instance]);
 
   const toggleTheme = () => {
     setIsDarkMode((prev) => {
@@ -99,14 +139,25 @@ export function App() {
     setApiError(null);
 
     try {
+      const today = formatLocalDate(new Date());
+      if (stayDates.checkIn <= today || stayDates.checkOut <= stayDates.checkIn) {
+        throw new Error('El check-in debe ser una fecha futura y el check-out posterior.');
+      }
+
+      const accessToken = await getApiAccessToken();
+      const emailHuesped = activeAccount?.username?.trim() || DEFAULT_GUEST_EMAIL;
+      if (!emailHuesped) {
+        throw new Error('Inicia sesión o configura VITE_RESERVATION_EMAIL para recibir confirmaciones.');
+      }
+
       const reserva = await crearReserva({
         unidadId: selectedId,
-        nombreHuesped: accounts[0]?.name ?? 'Huésped AndeStay',
-        emailHuesped: accounts[0]?.username ?? 'cliente@andestay.cl',
-        fechaEntrada: '2026-11-15',
-        fechaSalida: '2026-11-18',
-        cantidadPersonas: 2
-      });
+        nombreHuesped: activeAccount?.name ?? 'Huésped AndeStay',
+        emailHuesped,
+        fechaEntrada: stayDates.checkIn,
+        fechaSalida: stayDates.checkOut,
+        cantidadPersonas: guestCount
+      }, accessToken);
       setReservas((prev) => [...prev, reserva]);
       const reservedAlojamiento = alojamientos.find((item) => item.id === reserva.unidadId);
       if (reservedAlojamiento) {
@@ -121,15 +172,29 @@ export function App() {
   };
 
   useEffect(() => {
-    obtenerReservas()
-      .then(setReservas)
-      .catch((error: unknown) => {
-        setApiError(error instanceof Error ? error.message : 'No se pudo conectar con el backend.');
+    let isCurrent = true;
+    getApiAccessToken()
+      .then((accessToken) => obtenerReservas(accessToken))
+      .then((items) => {
+        if (isCurrent) setReservas(items);
       })
-      .finally(() => setIsLoadingReservations(false));
-  }, []);
+      .catch((error: unknown) => {
+        if (isCurrent) {
+          setApiError(error instanceof Error ? error.message : 'No se pudo conectar con el backend.');
+        }
+      })
+      .finally(() => {
+        if (isCurrent) setIsLoadingReservations(false);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [getApiAccessToken]);
 
   const favoriteAlojamientos = alojamientos.filter((item) => favoriteIds.includes(item.id));
+  const activeReservationsCount = reservas.filter(
+    (reserva) => reserva.estado.toUpperCase() !== 'CANCELADA'
+  ).length;
   const alojamientoActual = alojamientos.find((item) => item.id === selectedId) ?? alojamientos[0];
   const reservaActual = [...reservas].reverse().find((reserva) =>
     reserva.unidadId === alojamientoActual.id
@@ -148,10 +213,12 @@ export function App() {
     setIsCancellingReservation(reservation.id);
     setApiError(null);
     try {
-      await cancelarReserva(reservation.id);
-      setReservas((prev) => prev.filter((item) => item.id !== reservation.id));
+      const accessToken = await getApiAccessToken();
+      const updatedReservation = await cancelarReserva(reservation.id, accessToken);
+      setReservas((prev) => prev.map((item) =>
+        item.id === updatedReservation.id ? updatedReservation : item
+      ));
       setPaymentReservation(null);
-      setIsReservationsModalOpen(false);
     } catch (error) {
       setApiError(error instanceof Error ? error.message : 'No se pudo cancelar la reserva.');
     } finally {
@@ -164,7 +231,7 @@ export function App() {
       <Navbar
         isDarkMode={isDarkMode}
         isAuthenticated={isAuthenticated}
-        userName={accounts[0]?.name}
+        userName={activeAccount?.name}
         onToggleTheme={toggleTheme}
         onLogin={() => setActiveModal('login')}
         onRegister={() => setActiveModal('register')}
@@ -242,7 +309,7 @@ export function App() {
           <p className="api-status" role="status">
             {isLoadingReservations
               ? 'Cargando reservas desde el backend...'
-              : `${reservas.length} reserva${reservas.length === 1 ? '' : 's'} sincronizada${reservas.length === 1 ? '' : 's'}`}
+              : `${activeReservationsCount} reserva${activeReservationsCount === 1 ? '' : 's'} activa${activeReservationsCount === 1 ? '' : 's'} sincronizada${activeReservationsCount === 1 ? '' : 's'}`}
           </p>
           {apiError && <p className="api-error" role="alert">{apiError}</p>}
 
@@ -261,30 +328,77 @@ export function App() {
               <div className="reserva-detalles">
                 <div>
                   <span>Check-in</span>
-                    <strong>{reservaActual?.fechaEntrada ?? '15 nov'}</strong>
+                  {reservaActual ? (
+                    <strong>{reservaActual.fechaEntrada}</strong>
+                  ) : (
+                    <input
+                      className="reservation-input"
+                      type="date"
+                      min={formatLocalDate(new Date())}
+                      value={stayDates.checkIn}
+                      onChange={(event) => setStayDates((dates) => ({
+                        ...dates,
+                        checkIn: event.target.value
+                      }))}
+                      aria-label="Fecha de check-in"
+                    />
+                  )}
                 </div>
                 <div>
                   <span>Check-out</span>
-                    <strong>{reservaActual?.fechaSalida ?? '18 nov'}</strong>
+                  {reservaActual ? (
+                    <strong>{reservaActual.fechaSalida}</strong>
+                  ) : (
+                    <input
+                      className="reservation-input"
+                      type="date"
+                      min={stayDates.checkIn}
+                      value={stayDates.checkOut}
+                      onChange={(event) => setStayDates((dates) => ({
+                        ...dates,
+                        checkOut: event.target.value
+                      }))}
+                      aria-label="Fecha de check-out"
+                    />
+                  )}
                 </div>
                 <div>
                   <span>Huéspedes</span>
-                    <strong>{reservaActual?.cantidadPersonas ?? 2} personas</strong>
+                  {reservaActual ? (
+                    <strong>{reservaActual.cantidadPersonas} personas</strong>
+                  ) : (
+                    <input
+                      className="reservation-input"
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={guestCount}
+                      onChange={(event) => setGuestCount(Number(event.target.value))}
+                      aria-label="Cantidad de huéspedes"
+                    />
+                  )}
                 </div>
               </div>
 
               <div className="reserva-footer">
                 <div>
                   <span>Total</span>
-                  <strong>${(alojamientoActual.precio * 3).toLocaleString('es-CL')}</strong>
+                  <strong>${(alojamientoActual.precio * Math.max(
+                    1,
+                    Math.ceil((Date.parse(stayDates.checkOut) - Date.parse(stayDates.checkIn)) / 86_400_000)
+                  )).toLocaleString('es-CL')}</strong>
                 </div>
                 <button
                   type="button"
                   className="reserve-button"
                   onClick={handleCreateReservation}
-                  disabled={isCreatingReservation}
+                  disabled={isCreatingReservation || (API_SCOPE !== undefined && !isAuthenticated)}
                 >
-                  {isCreatingReservation ? 'Guardando...' : 'Reservar ahora'}
+                  {isCreatingReservation
+                    ? 'Guardando...'
+                    : API_SCOPE !== undefined && !isAuthenticated
+                      ? 'Inicia sesión para reservar'
+                      : 'Reservar ahora'}
                 </button>
                 {reservaActual && (
                   <button type="button" className="payment-button" onClick={handleOpenPayment}>
